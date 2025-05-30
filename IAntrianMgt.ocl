@@ -1,0 +1,177 @@
+context IAntrianMgt::tambahAntrian(pasien: Pasien): void
+pre:
+  -- Pasien tidak boleh null
+  pasien <> null
+  
+  -- Pasien harus memiliki ID yang valid
+  pasien.id <> null and pasien.id.size() > 0
+  
+  -- Pasien tidak boleh sudah dalam antrian yang aktif
+  not Antrian.allInstances()->exists(a | 
+    a.pasien.id = pasien.id and 
+    a.status <> 'Selesai' and 
+    a.status <> 'Batal'
+  )
+  
+post:
+  -- Terdapat antrian baru untuk pasien tersebut
+  let newAntrian: Antrian = 
+    Antrian.allInstances()->any(a | 
+      a.pasien.id = pasien.id and 
+      a.status = 'Menunggu' and
+      a.waktuDaftar = now()
+    ) 
+  in
+  
+  -- Antrian baru telah dibuat
+  newAntrian <> null and
+  
+  -- Nomor antrian telah dibuat
+  newAntrian.nomorAntrian <> null and newAntrian.nomorAntrian.size() > 0 and
+  
+  -- Waktu daftar telah diset ke waktu saat ini
+  newAntrian.waktuDaftar = now() and
+  
+  -- Status antrian adalah 'Menunggu'
+  newAntrian.status = 'Menunggu' and
+  
+  -- Antrian belum terpanggil
+  newAntrian.terpanggil = false and
+  
+  -- Waktu panggil belum diset
+  newAntrian.waktuPanggil = null and
+  
+  -- Display diset ke true agar ditampilkan di layar antrian
+  newAntrian.display = true
+
+context IAntrianMgt::panggilAntrian(nomor: String): void
+pre:
+  -- Nomor antrian tidak boleh null atau kosong
+  nomor <> null and nomor.size() > 0
+  
+  -- Antrian dengan nomor tersebut harus ada
+  Antrian.allInstances()->exists(a | a.nomorAntrian = nomor)
+  
+  -- Antrian tersebut harus berstatus 'Menunggu' dan belum terpanggil
+  let antrian: Antrian = Antrian.allInstances()->any(a | a.nomorAntrian = nomor) in
+  antrian.status = 'Menunggu' and antrian.terpanggil = false
+  
+post:
+  -- Antrian telah ditandai sebagai terpanggil
+  let antrian: Antrian = Antrian.allInstances()->any(a | a.nomorAntrian = nomor) in
+  
+  antrian.terpanggil = true and
+  
+  -- Waktu panggil telah diset ke waktu saat ini
+  antrian.waktuPanggil = now() and
+  
+  -- Status antrian masih 'Menunggu'
+  antrian.status = 'Menunggu'
+
+context IAntrianMgt::ubahStatus(nomor: String, status: String): void
+pre:
+  -- Nomor antrian tidak boleh null atau kosong
+  nomor <> null and nomor.size() > 0
+  
+  -- Status baru tidak boleh null atau kosong
+  status <> null and status.size() > 0
+  
+  -- Status baru harus valid
+  Set{'Menunggu', 'Proses', 'Selesai', 'Batal'}->includes(status)
+  
+  -- Antrian dengan nomor tersebut harus ada
+  Antrian.allInstances()->exists(a | a.nomorAntrian = nomor)
+  
+  -- Jika status baru adalah 'Proses', antrian harus sudah terpanggil
+  status = 'Proses' implies 
+    Antrian.allInstances()->any(a | a.nomorAntrian = nomor).terpanggil = true
+  
+post:
+  -- Status antrian telah diubah
+  Antrian.allInstances()->any(a | a.nomorAntrian = nomor).status = status
+  
+  -- Jika status baru adalah 'Selesai' atau 'Batal', antrian tidak lagi ditampilkan
+  (status = 'Selesai' or status = 'Batal') implies
+    Antrian.allInstances()->any(a | a.nomorAntrian = nomor).display = false
+
+context IAntrianMgt::setTerpanggil(nomor: String, terpanggil: Boolean): void
+pre:
+  -- Nomor antrian tidak boleh null atau kosong
+  nomor <> null and nomor.size() > 0
+  
+  -- Antrian dengan nomor tersebut harus ada
+  Antrian.allInstances()->exists(a | a.nomorAntrian = nomor)
+  
+  -- Antrian tersebut harus berstatus 'Menunggu'
+  Antrian.allInstances()->any(a | a.nomorAntrian = nomor).status = 'Menunggu'
+  
+post:
+  let antrian: Antrian = Antrian.allInstances()->any(a | a.nomorAntrian = nomor) in
+  
+  -- Status terpanggil telah diubah
+  antrian.terpanggil = terpanggil and
+  
+  -- Jika diset terpanggil, waktu panggil harus diset ke waktu saat ini
+  terpanggil = true implies antrian.waktuPanggil = now() and
+  
+  -- Jika diset tidak terpanggil, waktu panggil harus diset ke null
+  terpanggil = false implies antrian.waktuPanggil = null
+
+context IAntrianMgt::setDisplay(nomor: String, display: Boolean): void
+pre:
+  -- Nomor antrian tidak boleh null atau kosong
+  nomor <> null and nomor.size() > 0
+  
+  -- Antrian dengan nomor tersebut harus ada
+  Antrian.allInstances()->exists(a | a.nomorAntrian = nomor)
+  
+post:
+  -- Status display telah diubah
+  Antrian.allInstances()->any(a | a.nomorAntrian = nomor).display = display
+
+context IAntrianMgt::getAntrian(nomor: String): Antrian
+pre:
+  -- Nomor antrian tidak boleh null atau kosong
+  nomor <> null and nomor.size() > 0
+  
+post:
+  -- Jika antrian dengan nomor tersebut ditemukan, kembalikan antrian tersebut
+  Antrian.allInstances()->exists(a | a.nomorAntrian = nomor) implies
+    result = Antrian.allInstances()->any(a | a.nomorAntrian = nomor)
+  
+  -- Jika antrian tidak ditemukan, kembalikan null
+  not Antrian.allInstances()->exists(a | a.nomorAntrian = nomor) implies
+    result = null
+
+context IAntrianMgt::getAntrianBelumTerpanggil(): List<Antrian>
+pre:
+  -- Tidak ada prasyarat khusus
+  true
+  
+post:
+  -- Hasil berisi semua antrian yang belum terpanggil dan berstatus 'Menunggu'
+  result->forAll(a | a.terpanggil = false and a.status = 'Menunggu')
+  
+  -- Semua antrian yang belum terpanggil dan berstatus 'Menunggu' ada dalam hasil
+  Antrian.allInstances()->forAll(a | 
+    a.terpanggil = false and a.status = 'Menunggu' implies result->includes(a)
+  )
+  
+  -- Hasil diurutkan berdasarkan prioritas pasien dan waktu daftar
+  result->forAll(a1, a2 | result->indexOf(a1) < result->indexOf(a2) implies
+    (a1.pasien.prioritasLevel < a2.pasien.prioritasLevel) or 
+    (a1.pasien.prioritasLevel = a2.pasien.prioritasLevel and a1.waktuDaftar < a2.waktuDaftar)
+  )
+
+context Antrian
+-- Helper untuk menentukan apakah pasien dalam antrian ini adalah lansia
+def: isLansia(): Boolean = 
+  self.pasien.umur >= 60
+  
+-- Helper untuk menentukan waktu tunggu antrian (dalam menit)
+def: waktuTunggu(): Integer =
+  if self.waktuPanggil <> null then
+    (self.waktuPanggil - self.waktuDaftar).minutes()
+  else
+    (now() - self.waktuDaftar).minutes()
+  endif

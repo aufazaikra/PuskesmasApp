@@ -1,0 +1,113 @@
+context IPasienMgt::getPasienDetails(id_string: String): PasienDetails
+pre:
+  -- ID pasien tidak boleh null atau kosong
+  id_string <> null and id_string.size() > 0
+  
+post:
+  -- Jika pasien dengan ID tersebut ditemukan, kembalikan detailnya
+  result <> null implies
+    result.id = id_string and
+    result.nama <> null and
+    result.umur > 0
+    
+  -- Jika pasien tidak ditemukan, kembalikan null
+  not Pasien.allInstances()->exists(p | p.id = id_string) implies result = null
+
+context IPasienMgt::createPasien(pasienDetails: PasienDetails): String
+pre:
+  -- Data pasien tidak boleh null
+  pasienDetails <> null
+  
+  -- Nama pasien harus valid (tidak kosong)
+  pasienDetails.nama <> null and pasienDetails.nama.size() > 0
+  
+  -- Umur pasien harus valid (positif)
+  pasienDetails.umur > 0
+  
+  -- ID pasien tidak boleh sudah ada
+  not Pasien.allInstances()->exists(p | p.id = pasienDetails.id)
+  
+post:
+  -- Pasien baru telah dibuat dalam sistem
+  let newPasien: Pasien = Pasien.allInstances()->any(p | p.id = result) in
+    
+  -- ID yang dikembalikan adalah valid
+  result <> null and result.size() > 0 and
+  
+  -- Pasien dengan ID tersebut ada dalam sistem
+  newPasien <> null and
+  
+  -- Data pasien sesuai dengan yang dimasukkan
+  newPasien.nama = pasienDetails.nama and
+  newPasien.umur = pasienDetails.umur and
+  
+  -- Prioritas level dihitung berdasarkan umur (asumsi: lansia >60 tahun mendapat prioritas 1, yang lain prioritas 2)
+  newPasien.prioritasLevel = 
+    if pasienDetails.umur >= 60 then 1 else 2 endif
+
+context IPasienMgt::updatePasien(id_string: String, pasienDetails: PasienDetails): Boolean
+pre:
+  -- ID pasien tidak boleh null atau kosong
+  id_string <> null and id_string.size() > 0
+  
+  -- Data pasien tidak boleh null
+  pasienDetails <> null
+  
+  -- Nama pasien harus valid (tidak kosong)
+  pasienDetails.nama <> null and pasienDetails.nama.size() > 0
+  
+  -- Umur pasien harus valid (positif)
+  pasienDetails.umur > 0
+  
+  -- Pasien dengan ID tersebut harus ada dalam sistem
+  Pasien.allInstances()->exists(p | p.id = id_string)
+  
+post:
+  -- Jika update berhasil
+  result = true implies
+    let updatedPasien: Pasien = Pasien.allInstances()->any(p | p.id = id_string) in
+    
+    -- Data pasien telah diperbarui
+    updatedPasien.nama = pasienDetails.nama and
+    updatedPasien.umur = pasienDetails.umur and
+    
+    -- Prioritas level dihitung ulang berdasarkan umur baru
+    updatedPasien.prioritasLevel = 
+      if pasienDetails.umur >= 60 then 1 else 2 endif
+    
+  -- Jika update gagal, tidak ada perubahan data
+  result = false implies
+    let pasien: Pasien = Pasien.allInstances()->any(p | p.id = id_string) in
+    pasien.nama = pasien.nama@pre and
+    pasien.umur = pasien.umur@pre and
+    pasien.prioritasLevel = pasien.prioritasLevel@pre
+
+context IPasienMgt::deletePasien(id_string: String): Boolean
+pre:
+  -- ID pasien tidak boleh null atau kosong
+  id_string <> null and id_string.size() > 0
+  
+  -- Pasien dengan ID tersebut harus ada dalam sistem
+  Pasien.allInstances()->exists(p | p.id = id_string)
+  
+  -- Pastikan pasien tidak sedang dalam antrian aktif
+  not Antrian.allInstances()->exists(a | a.pasien.id = id_string and a.status <> 'Selesai')
+  
+post:
+  -- Jika delete berhasil
+  result = true implies
+    -- Pasien dengan ID tersebut tidak ada lagi dalam sistem
+    not Pasien.allInstances()->exists(p | p.id = id_string)
+    
+  -- Jika delete gagal, pasien tetap ada dalam sistem
+  result = false implies
+    Pasien.allInstances()->exists(p | p.id = id_string)
+
+context Pasien
+-- Helper untuk menentukan apakah pasien adalah lansia (umur >= 60)
+def: isLansia(): Boolean = 
+  self.umur >= 60
+  
+-- Helper untuk menghitung prioritas level
+def: hitungPrioritasLevel(): Integer =
+  if self.isLansia() then 1 else 2 endif
