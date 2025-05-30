@@ -1,0 +1,151 @@
+context IPetugasMgt::tambahPetugas(p: Petugas): void
+pre:
+  -- Petugas tidak boleh null
+  p <> null
+  
+  -- Data petugas harus valid
+  p.id <> null and p.id.size() > 0 and
+  p.nama <> null and p.nama.size() > 0 and
+  p.posisi <> null and p.posisi.size() > 0
+  
+  -- ID petugas tidak boleh sudah ada dalam sistem
+  not Petugas.allInstances()->exists(pet | pet.id = p.id)
+  
+post:
+  -- Petugas baru telah ditambahkan ke dalam sistem
+  Petugas.allInstances()->exists(pet | 
+    pet.id = p.id and
+    pet.nama = p.nama and
+    pet.posisi = p.posisi and
+    pet.aktif = p.aktif
+  )
+
+context IPetugasMgt::ubahPetugas(p: Petugas): void
+pre:
+  -- Petugas tidak boleh null
+  p <> null
+  
+  -- Data petugas harus valid
+  p.id <> null and p.id.size() > 0 and
+  p.nama <> null and p.nama.size() > 0 and
+  p.posisi <> null and p.posisi.size() > 0
+  
+  -- Petugas dengan ID tersebut harus ada dalam sistem
+  Petugas.allInstances()->exists(pet | pet.id = p.id)
+  
+post:
+  -- Data petugas telah diperbarui
+  let updatedPetugas: Petugas = Petugas.allInstances()->any(pet | pet.id = p.id) in
+    updatedPetugas.nama = p.nama and
+    updatedPetugas.posisi = p.posisi and
+    updatedPetugas.aktif = p.aktif
+
+context IPetugasMgt::hapusPetugas(id: String): void
+pre:
+  -- ID petugas tidak boleh null atau kosong
+  id <> null and id.size() > 0
+  
+  -- Petugas dengan ID tersebut harus ada dalam sistem
+  Petugas.allInstances()->exists(p | p.id = id)
+  
+  -- Pastikan petugas tidak sedang menangani pemeriksaan aktif
+  not Pemeriksaan.allInstances()->exists(pemeriksaan | 
+    pemeriksaan.petugas.id = id and 
+    pemeriksaan.status <> 'Selesai' and
+    pemeriksaan.status <> 'Batal'
+  )
+  
+post:
+  -- Petugas telah dihapus dari sistem
+  not Petugas.allInstances()->exists(p | p.id = id)
+
+context IPetugasMgt::cariPetugas(id: String): Petugas
+pre:
+  -- ID petugas tidak boleh null atau kosong
+  id <> null and id.size() > 0
+  
+post:
+  -- Jika petugas dengan ID tersebut ditemukan, kembalikan petugas tersebut
+  Petugas.allInstances()->exists(p | p.id = id) implies
+    result = Petugas.allInstances()->any(p | p.id = id)
+  
+  -- Jika petugas tidak ditemukan, kembalikan null
+  not Petugas.allInstances()->exists(p | p.id = id) implies
+    result = null
+
+context IPetugasMgt::getDaftarPetugas(): List<Petugas>
+pre:
+  -- Tidak ada prasyarat khusus
+  true
+  
+post:
+  -- Hasil berisi semua petugas dalam sistem
+  Petugas.allInstances()->forAll(p | result->includes(p))
+  
+  -- Semua petugas dalam sistem ada dalam hasil
+  result->forAll(p | Petugas.allInstances()->includes(p))
+  
+  -- Hasil diurutkan berdasarkan ID petugas
+  result->forAll(p1, p2 | result->indexOf(p1) < result->indexOf(p2) implies
+    p1.id < p2.id
+  )
+
+context IPetugasMgt::getPemeriksaanByPetugas(idPetugas: String): List<Pemeriksaan>
+pre:
+  -- ID petugas tidak boleh null atau kosong
+  idPetugas <> null and idPetugas.size() > 0
+  
+  -- Petugas dengan ID tersebut harus ada dalam sistem
+  Petugas.allInstances()->exists(p | p.id = idPetugas)
+  
+post:
+  -- Hasil berisi semua pemeriksaan yang ditangani oleh petugas dengan ID tersebut
+  result->forAll(pm | pm.petugas.id = idPetugas)
+  
+  -- Semua pemeriksaan yang ditangani oleh petugas dengan ID tersebut ada dalam hasil
+  Pemeriksaan.allInstances()->forAll(pm | 
+    pm.petugas.id = idPetugas implies result->includes(pm)
+  )
+  
+  -- Hasil diurutkan berdasarkan waktu mulai pemeriksaan (terbaru dulu)
+  result->forAll(pm1, pm2 | result->indexOf(pm1) < result->indexOf(pm2) implies
+    pm1.waktuMulai > pm2.waktuMulai
+  )
+
+context Petugas
+-- Helper untuk menghitung jumlah pemeriksaan yang ditangani petugas
+def: jumlahPemeriksaan(): Integer =
+  Pemeriksaan.allInstances()->select(pm | pm.petugas = self)->size()
+  
+-- Helper untuk menghitung jumlah pemeriksaan yang sedang ditangani petugas
+def: jumlahPemeriksaanAktif(): Integer =
+  Pemeriksaan.allInstances()->select(pm | 
+    pm.petugas = self and 
+    pm.status = 'Dalam Proses'
+  )->size()
+  
+-- Helper untuk menghitung rata-rata waktu pemeriksaan (dalam menit)
+def: rataRataWaktuPemeriksaan(): Real =
+  let selesai: Set(Pemeriksaan) = 
+    Pemeriksaan.allInstances()->select(pm | 
+      pm.petugas = self and 
+      pm.status = 'Selesai' and
+      pm.waktuSelesai <> null and
+      pm.waktuMulai <> null
+    )
+  in
+  if selesai->isEmpty() then
+    0
+  else
+    selesai->collect(pm | (pm.waktuSelesai - pm.waktuMulai).minutes())->sum() / selesai->size()
+  endif
+
+context Pemeriksaan
+-- Invariant: Setiap pemeriksaan harus memiliki petugas dan antrian yang valid
+inv validPemeriksaan:
+  self.petugas <> null and self.antrian <> null
+
+context Antrian
+-- Invariant: Jika antrian sudah terpanggil, waktu panggil tidak boleh null
+inv validWaktuPanggil:
+  self.terpanggil = true implies self.waktuPanggil <> null
